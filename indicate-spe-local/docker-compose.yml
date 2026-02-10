@@ -1,0 +1,103 @@
+services:
+  # PostgreSQL Database with OMOP CDM v5.4
+  omop-db:
+    image: postgres:15-alpine
+    container_name: indicate-omop-db
+    environment:
+      POSTGRES_DB: omop_cdm
+      POSTGRES_USER: omop_user
+      POSTGRES_PASSWORD: omop_password
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d
+      - ./vocabularies:/vocabularies:ro
+      - ./synthetic-data:/synthetic-data:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omop_user -d omop_cdm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - indicate-network
+
+  # Backend API for study management and execution coordination
+  backend-api:
+    build:
+      context: ./backend-api
+      dockerfile: Dockerfile
+    container_name: indicate-backend-api
+    environment:
+      DATABASE_HOST: omop-db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: omop_cdm
+      DATABASE_USER: omop_user
+      DATABASE_PASSWORD: omop_password
+      CODE_EXECUTION_URL: http://code-executor:8001
+    ports:
+      - "8000:8000"
+    depends_on:
+      omop-db:
+        condition: service_healthy
+    volumes:
+      - ./studies:/studies
+      - ./results:/results
+    networks:
+      - indicate-network
+
+  # Code Execution Engine for running R/Python analytics
+  code-executor:
+    build:
+      context: ./code-executor
+      dockerfile: Dockerfile
+    container_name: indicate-code-executor
+    environment:
+      DATABASE_HOST: omop-db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: omop_cdm
+      DATABASE_USER: omop_user
+      DATABASE_PASSWORD: omop_password
+    ports:
+      - "8001:8001"
+    depends_on:
+      omop-db:
+        condition: service_healthy
+    volumes:
+      - ./studies:/studies:ro
+      - ./results:/results
+    networks:
+      - indicate-network
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  # Data Quality Dashboard (optional for this test)
+  dq-dashboard:
+    build:
+      context: ./dq-dashboard
+      dockerfile: Dockerfile
+    container_name: indicate-dq-dashboard
+    environment:
+      DATABASE_HOST: omop-db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: omop_cdm
+      DATABASE_USER: omop_user
+      DATABASE_PASSWORD: omop_password
+    ports:
+      - "8501:8501"
+    depends_on:
+      omop-db:
+        condition: service_healthy
+    networks:
+      - indicate-network
+
+networks:
+  indicate-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
