@@ -1,2 +1,9 @@
 # Large vocabulary files
 indicate-spe-local/vocabularies/*
+
+# Test studies
+indicate-spe-local/studies
+!indicate-spe-local/studies/example-cohort-study/*
+!indicate-spe-local/studies/example-sepsis-study/*
+
+indicate-spe-local/results/*

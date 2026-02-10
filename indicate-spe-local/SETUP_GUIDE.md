@@ -135,7 +135,7 @@ This will take 10-20 minutes on first run as it downloads base images and instal
 cd ~/indicate-spe-local
 
 # Build all services
-docker-compose build
+docker-compose build --progress=plain
 
 # Monitor build progress
 # You should see:
@@ -291,7 +291,7 @@ curl http://localhost:8001/health
 # Test database connection
 curl http://localhost:8001/test/database
 
-# Test R execution (takes ~30 seconds)
+# Test R execution (takes a few seconds)
 curl http://localhost:8001/test/r
 
 # Expected output:
@@ -347,26 +347,39 @@ curl -X POST http://localhost:8000/studies \
   -F "researcher=Test User" \
   -F "institution=Test Hospital"
 
+# Example output
+{
+  "study_id":"7646e647-8193-4593-ba1c-23a0a19b7a63",
+  "study_name":"cohort_analysis.R",
+  "description":"",
+  "study_type":"cohort_analysis",
+  "researcher":"Test Researcher",
+  "institution":"Test Institution",
+  "created_at":"2026-02-10T09:15:01.622344"
+}
+
 # Save the returned study_id (e.g., "abc-123-def-456")
-STUDY_ID="<paste-study-id-here>"
+STUDY_ID=<paste-your-study-id> 
+echo "Study ID: $STUDY_ID"
 
 # Execute the study
-curl -X POST http://localhost:8000/studies/$STUDY_ID/execute
-
-# Save the returned execution_id
-EXECUTION_ID="<paste-execution-id-here>"
+EXEC_RESPONSE=$(curl -s -X POST http://localhost:8000/studies/$STUDY_ID/execute)
+EXECUTION_ID=$(echo $EXEC_RESPONSE | grep -o '"execution_id":"[^"]*"' | cut -d'"' -f4)
+echo "Execution ID: $EXECUTION_ID"
 
 # Check execution status (wait 30-60 seconds)
 curl http://localhost:8000/studies/$STUDY_ID/executions/$EXECUTION_ID/status
-
-# Get results
-curl http://localhost:8000/studies/$STUDY_ID/executions/$EXECUTION_ID/results
 
 # Download results file
 curl http://localhost:8000/studies/$STUDY_ID/executions/$EXECUTION_ID/results > results.json
 
 # View formatted results
 cat results.json | jq '.'
+
+# See the execution logs (helpful for debugging)
+curl http://localhost:8000/studies/$STUDY_ID/executions/$EXECUTION_ID/logs
+
+
 ```
 
 **Expected Results Structure**:
@@ -406,17 +419,6 @@ curl -X POST http://localhost:8000/studies \
 
 # Execute and retrieve results (follow same pattern as Study 1)
 ```
-
-### Study 3: Default Cohort Analysis (No Custom Script)
-
-```bash
-# Execute default analysis without uploading custom code
-curl -X POST http://localhost:8000/studies/default/execute
-
-# This runs a built-in cohort characterization
-```
-
----
 
 ## Troubleshooting
 
@@ -543,8 +545,9 @@ If you need to start fresh:
 # Stop and remove everything
 docker-compose down -v
 
-# Remove all data (WARNING: DESTRUCTIVE)
-rm -rf results/* studies/*/
+# Remove results
+rm -rf results/* 
+
 
 # Rebuild and restart
 docker-compose build --no-cache

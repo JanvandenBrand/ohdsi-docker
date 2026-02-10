@@ -4,11 +4,13 @@
 library(DatabaseConnector)
 library(jsonlite)
 
+# Get database connection from environment
+# For PostgreSQL, server format is: "host/database"
 db_host <- Sys.getenv("DATABASE_HOST")
 db_name <- Sys.getenv("DATABASE_NAME")
 server_string <- paste0(db_host, "/", db_name)
 
-# JDBC driver path (from environment)
+# JDBC driver path (set in container environment)
 jdbc_path <- Sys.getenv("DATABASECONNECTOR_JAR_FOLDER")
 if (jdbc_path == "") {
     jdbc_path <- "/jdbc_drivers"
@@ -17,28 +19,56 @@ if (jdbc_path == "") {
 connectionDetails <- createConnectionDetails(
     dbms = "postgresql",
     server = server_string,
-    port = Sys.getenv("DATABASE_PORT"),
+    port = as.integer(Sys.getenv("DATABASE_PORT")),
     user = Sys.getenv("DATABASE_USER"),
     password = Sys.getenv("DATABASE_PASSWORD"),
-    pathToDriver = jdbc_path  # ✅ Now specified
+    pathToDriver = jdbc_path
 )
 
 # Connect to database
 connection <- connect(connectionDetails)
 
-# Query 1: ICU patient demographics
+# Query 1: ICU patient demographics (individual patients, not aggregated)
 demographics_sql <- "
 SELECT 
-    gender_source_value as gender,
-    2024 - year_of_birth as age,
-    COUNT(DISTINCT p.person_id) as patient_count
+    p.person_id,
+    p.gender_source_value as gender,
+    2024 - p.year_of_birth as age
 FROM cdm.person p
 INNER JOIN cdm.visit_detail vd ON p.person_id = vd.person_id
-GROUP BY gender_source_value, year_of_birth
-ORDER BY patient_count DESC
+ORDER BY p.person_id
 "
 
 demographics <- querySql(connection, demographics_sql)
+
+# Convert column names to lowercase immediately after each query
+names(demographics) <- tolower(names(demographics))
+
+# Calculate age statistics from individual patients
+age_stats <- list(
+    mean = round(mean(demographics$age, na.rm = TRUE), 1),
+    median = round(median(demographics$age, na.rm = TRUE), 1),
+    min = min(demographics$age, na.rm = TRUE),
+    max = max(demographics$age, na.rm = TRUE),
+    sd = round(sd(demographics$age, na.rm = TRUE), 1)
+)
+
+# Create age groups for reporting
+demographics$age_group <- cut(demographics$age, 
+                               breaks = c(0, 40, 50, 60, 70, 80, 100),
+                               labels = c("<40", "40-49", "50-59", "60-69", "70-79", "80+"),
+                               right = FALSE)
+
+# Aggregate demographics for reporting
+demo_summary <- data.frame(
+    gender = names(table(demographics$gender)),
+    count = as.vector(table(demographics$gender))
+)
+
+age_group_summary <- data.frame(
+    age_group = names(table(demographics$age_group)),
+    count = as.vector(table(demographics$age_group))
+)
 
 # Query 2: Common ICU diagnoses
 diagnoses_sql <- "
@@ -56,6 +86,7 @@ LIMIT 10
 "
 
 diagnoses <- querySql(connection, diagnoses_sql)
+names(diagnoses) <- tolower(names(diagnoses))
 
 # Query 3: ICU length of stay statistics
 los_sql <- "
@@ -68,6 +99,7 @@ FROM cdm.visit_detail
 "
 
 los_stats <- querySql(connection, los_sql)
+names(los_stats) <- tolower(names(los_stats))
 
 # Query 4: Vital signs summary
 vitals_sql <- "
@@ -87,6 +119,7 @@ ORDER BY measurement_count DESC
 "
 
 vitals <- querySql(connection, vitals_sql)
+names(vitals) <- tolower(names(vitals))
 
 # Disconnect
 disconnect(connection)
@@ -95,16 +128,15 @@ disconnect(connection)
 results <- list(
     study_name = "ICU Cohort Characterization",
     study_type = "descriptive_analysis",
-    execution_date = Sys.time(),
+    execution_date = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
     cohort = list(
         total_icu_patients = nrow(demographics),
-        demographics = demographics,
-        age_summary = list(
-            mean = mean(demographics$AGE, na.rm = TRUE),
-            median = median(demographics$AGE, na.rm = TRUE),
-            min = min(demographics$AGE, na.rm = TRUE),
-            max = max(demographics$AGE, na.rm = TRUE)
-        )
+        unique_patients = length(unique(demographics$person_id)),
+        demographics_summary = list(
+            by_gender = demo_summary,
+            by_age_group = age_group_summary
+        ),
+        age_statistics = age_stats
     ),
     clinical_characteristics = list(
         common_diagnoses = diagnoses,
@@ -113,7 +145,7 @@ results <- list(
     ),
     metadata = list(
         r_version = paste(R.version$major, R.version$minor, sep = "."),
-        ohdsi_version = packageVersion("DatabaseConnector"),
+        ohdsi_version = as.character(packageVersion("DatabaseConnector")),
         omop_cdm_version = "5.4"
     )
 )
