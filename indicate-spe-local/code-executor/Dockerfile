@@ -1,6 +1,6 @@
 FROM rocker/r-ver:4.3.2
 
-# Install system dependencies
+# Install system dependencies including Java for OHDSI
 RUN apt-get update && apt-get install -y \
     python3.11 \
     python3-pip \
@@ -17,16 +17,34 @@ RUN apt-get update && apt-get install -y \
     libjpeg-dev \
     git \
     curl \
+    openjdk-17-jdk \
+    openjdk-17-jre \
     && rm -rf /var/lib/apt/lists/*
+
+# Configure Java for R
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV LD_LIBRARY_PATH=$JAVA_HOME/lib/server:$LD_LIBRARY_PATH
+RUN R CMD javareconf
 
 # Install R packages for OHDSI
 RUN R -e "install.packages(c('remotes', 'renv', 'jsonlite', 'DBI', 'RPostgres', 'dplyr', 'tidyr'), repos='https://cloud.r-project.org/')"
 
-# Install OHDSI packages
+# Install rJava (requires Java configuration above)
+RUN R -e "install.packages('rJava', repos='https://cloud.r-project.org/')"
+
+# Install OHDSI packages (depend on rJava)
 RUN R -e "remotes::install_github('OHDSI/DatabaseConnector')"
 RUN R -e "remotes::install_github('OHDSI/SqlRender')"
 RUN R -e "remotes::install_github('OHDSI/CohortGenerator')"
 RUN R -e "remotes::install_github('OHDSI/FeatureExtraction')"
+
+# Download JDBC drivers for DatabaseConnector
+RUN mkdir -p /jdbc_drivers && \
+    cd /jdbc_drivers && \
+    R -e "DatabaseConnector::downloadJdbcDrivers('postgresql', pathToDriver='/jdbc_drivers')"
+
+# Set environment variable for driver path
+ENV DATABASECONNECTOR_JAR_FOLDER=/jdbc_drivers
 
 # Set up Python environment
 WORKDIR /app

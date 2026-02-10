@@ -4,14 +4,23 @@
 library(DatabaseConnector)
 library(jsonlite)
 
-# Get database connection from environment
+db_host <- Sys.getenv("DATABASE_HOST")
+db_name <- Sys.getenv("DATABASE_NAME")
+server_string <- paste0(db_host, "/", db_name)
+
+# JDBC driver path (from environment)
+jdbc_path <- Sys.getenv("DATABASECONNECTOR_JAR_FOLDER")
+if (jdbc_path == "") {
+    jdbc_path <- "/jdbc_drivers"
+}
+
 connectionDetails <- createConnectionDetails(
     dbms = "postgresql",
-    server = Sys.getenv("DATABASE_HOST"),
-    port = as.integer(Sys.getenv("DATABASE_PORT")),
-    database = Sys.getenv("DATABASE_NAME"),
+    server = server_string,
+    port = Sys.getenv("DATABASE_PORT"),
     user = Sys.getenv("DATABASE_USER"),
-    password = Sys.getenv("DATABASE_PASSWORD")
+    password = Sys.getenv("DATABASE_PASSWORD"),
+    pathToDriver = jdbc_path  # ✅ Now specified
 )
 
 # Connect to database

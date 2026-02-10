@@ -27,14 +27,14 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Configuration
+# Configuration with defaults
 DATABASE_HOST = os.getenv('DATABASE_HOST', 'omop-db')
 DATABASE_PORT = os.getenv('DATABASE_PORT', '5432')
 DATABASE_NAME = os.getenv('DATABASE_NAME', 'omop_cdm')
 DATABASE_USER = os.getenv('DATABASE_USER', 'omop_user')
 DATABASE_PASSWORD = os.getenv('DATABASE_PASSWORD', 'omop_password')
 
-DATABASE_URL = f"postgresql://{os.getenv('DATABASE_USER')}:{os.getenv('DATABASE_PASSWORD')}@{os.getenv('DATABASE_HOST')}:{os.getenv('DATABASE_PORT')}/{os.getenv('DATABASE_NAME')}"
+DATABASE_URL = f"postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
 
 STUDIES_DIR = Path("/studies")
 RESULTS_DIR = Path("/results")
@@ -155,14 +155,26 @@ async def test_r_execution():
 library(DatabaseConnector)
 library(jsonlite)
 
-# Connection details
+# Connection details for PostgreSQL
+# For PostgreSQL, server format is: "host/database"
+db_host <- Sys.getenv("DATABASE_HOST")
+db_port <- Sys.getenv("DATABASE_PORT")
+db_name <- Sys.getenv("DATABASE_NAME")
+server_string <- paste0(db_host, "/", db_name)
+
+# JDBC driver path (from environment)
+jdbc_path <- Sys.getenv("DATABASECONNECTOR_JAR_FOLDER")
+if (jdbc_path == "") {
+    jdbc_path <- "/jdbc_drivers"
+}
+
 connectionDetails <- createConnectionDetails(
     dbms = "postgresql",
-    server = Sys.getenv("DATABASE_HOST"),
+    server = server_string,
     port = Sys.getenv("DATABASE_PORT"),
-    database = Sys.getenv("DATABASE_NAME"),
     user = Sys.getenv("DATABASE_USER"),
-    password = Sys.getenv("DATABASE_PASSWORD")
+    password = Sys.getenv("DATABASE_PASSWORD"),
+    pathToDriver = jdbc_path  # ✅ Now specified
 )
 
 # Connect and query
